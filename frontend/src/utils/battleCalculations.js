@@ -603,27 +603,48 @@ export const calculateTeamRating = (creatures) => {
   return Math.round(totalRating * synergyMultiplier);
 };
 
-// FIXED: Apply synergy modifiers to entire field
+// CRITICAL FIX: Apply synergy modifiers to entire field WITHOUT health desync
 export const applySynergyModifiers = (creatures, synergies) => {
   if (!creatures || creatures.length === 0) return creatures;
   
   return creatures.map(creature => {
-    // FIXED: Preserve original maxHealth when synergies are applied
-    const originalMaxHealth = creature.battleStats?.maxHealth || creature.maxHealth || creature.health;
-    const healthPercentage = creature.currentHealth / originalMaxHealth;
+    // FIXED: Track if creature already has synergies applied
+    const currentSynergyIds = creature.activeSynergies ? 
+      creature.activeSynergies.map(s => `${s.type}-${s.name}`).sort().join(',') : '';
+    const newSynergyIds = synergies ? 
+      synergies.map(s => `${s.type}-${s.name}`).sort().join(',') : '';
+    
+    // If synergies haven't changed, don't recalculate
+    if (currentSynergyIds === newSynergyIds && creature.battleStats) {
+      return creature;
+    }
     
     // Recalculate stats with active synergies
     const modifiedStats = calculateDerivedStats(creature, synergies);
     
-    // FIXED: Maintain health percentage after synergy application
-    const newMaxHealth = modifiedStats.maxHealth;
-    const newCurrentHealth = Math.round(healthPercentage * newMaxHealth);
+    // CRITICAL FIX: Scale current health with max health changes
+    let newCurrentHealth = creature.currentHealth;
+    if (creature.battleStats && creature.battleStats.maxHealth > 0) {
+      // Only scale if we had previous battleStats
+      const healthRatio = creature.currentHealth / creature.battleStats.maxHealth;
+      newCurrentHealth = Math.round(healthRatio * modifiedStats.maxHealth);
+    } else if (!creature.currentHealth || creature.currentHealth === creature.maxHealth) {
+      // If no current health or at full health, set to new max
+      newCurrentHealth = modifiedStats.maxHealth;
+    }
+    
+    console.log(`Synergy health scaling for ${creature.species_name}:`, {
+      oldMax: creature.battleStats?.maxHealth || creature.maxHealth,
+      newMax: modifiedStats.maxHealth,
+      oldCurrent: creature.currentHealth,
+      newCurrent: newCurrentHealth
+    });
     
     return {
       ...creature,
       battleStats: modifiedStats,
       activeSynergies: synergies,
-      maxHealth: newMaxHealth,
+      maxHealth: modifiedStats.maxHealth,
       currentHealth: newCurrentHealth
     };
   });
