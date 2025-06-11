@@ -328,7 +328,14 @@ const battleReducer = (state, action) => {
         return state;
       }
       
-      const newPlayerField = [...state.playerField, action.creature];
+      // CRITICAL FIX: Ensure the deployed creature has proper initial health
+      const deployedCreature = {
+        ...action.creature,
+        currentHealth: action.creature.currentHealth || action.creature.battleStats?.maxHealth || action.creature.health,
+        maxHealth: action.creature.battleStats?.maxHealth || action.creature.health
+      };
+      
+      const newPlayerField = [...state.playerField, deployedCreature];
       
       // FIXED: Apply synergies after deployment
       const playerSynergies = checkFieldSynergies(newPlayerField);
@@ -359,7 +366,14 @@ const battleReducer = (state, action) => {
         return state;
       }
       
-      const newEnemyFieldDeploy = [...state.enemyField, action.creature];
+      // CRITICAL FIX: Ensure enemy creature has proper initial health
+      const enemyDeployedCreature = {
+        ...action.creature,
+        currentHealth: action.creature.currentHealth || action.creature.battleStats?.maxHealth || action.creature.health,
+        maxHealth: action.creature.battleStats?.maxHealth || action.creature.health
+      };
+      
+      const newEnemyFieldDeploy = [...state.enemyField, enemyDeployedCreature];
       
       // FIXED: Apply enemy synergies
       const enemySynergies = checkFieldSynergies(newEnemyFieldDeploy);
@@ -372,23 +386,53 @@ const battleReducer = (state, action) => {
         enemyEnergy: Math.max(0, state.enemyEnergy - enemyDeployCost),
         consecutiveActions: { ...state.consecutiveActions, enemy: state.consecutiveActions.enemy + 1 },
         energyMomentum: { ...state.energyMomentum, enemy: state.energyMomentum.enemy + enemyDeployCost },
-        enemyActiveSynergies: enemySynergies // NEW: Store enemy synergies
+        enemyActiveSynergies: enemySynergies
       };
     
     case ACTIONS.UPDATE_CREATURE:
+      // FIXED: Maintain synergies when updating individual creatures
       if (action.isPlayer) {
+        // Check if synergies need to be recalculated
+        const updatedPlayerField = state.playerField.map(c => 
+          c.id === action.creature.id ? action.creature : c
+        );
+        
+        // Only recalculate synergies if field composition changed
+        if (updatedPlayerField.filter(c => c.currentHealth > 0).length !== state.playerField.filter(c => c.currentHealth > 0).length) {
+          const newSynergies = checkFieldSynergies(updatedPlayerField.filter(c => c.currentHealth > 0));
+          const resynergizedField = applyFieldSynergies(updatedPlayerField.filter(c => c.currentHealth > 0));
+          
+          return {
+            ...state,
+            playerField: resynergizedField,
+            activeSynergies: newSynergies
+          };
+        }
+        
         return {
           ...state,
-          playerField: state.playerField.map(c => 
-            c.id === action.creature.id ? action.creature : c
-          )
+          playerField: updatedPlayerField
         };
       } else {
+        // Same for enemy field
+        const updatedEnemyField = state.enemyField.map(c => 
+          c.id === action.creature.id ? action.creature : c
+        );
+        
+        if (updatedEnemyField.filter(c => c.currentHealth > 0).length !== state.enemyField.filter(c => c.currentHealth > 0).length) {
+          const newSynergies = checkFieldSynergies(updatedEnemyField.filter(c => c.currentHealth > 0));
+          const resynergizedField = applyFieldSynergies(updatedEnemyField.filter(c => c.currentHealth > 0));
+          
+          return {
+            ...state,
+            enemyField: resynergizedField,
+            enemyActiveSynergies: newSynergies
+          };
+        }
+        
         return {
           ...state,
-          enemyField: state.enemyField.map(c => 
-            c.id === action.creature.id ? action.creature : c
-          )
+          enemyField: updatedEnemyField
         };
       }
     
@@ -968,7 +1012,7 @@ const battleReducer = (state, action) => {
     }
     
     case ACTIONS.END_TURN: {
-      // Process field effects before ending turn
+      // Process field effects before ending turn but DON'T remove synergies
       const processedPlayerField = state.playerField.map(creature => {
         let updatedCreature = { ...creature };
         updatedCreature.currentTurn = state.turn;
@@ -1052,19 +1096,21 @@ const battleReducer = (state, action) => {
           }
         }
         
-        // Recalculate stats with the updated active effects
-        // FIXED: recalculateDerivedStats returns a full creature object, not just stats
-        const creatureWithRecalculatedStats = recalculateDerivedStats(updatedCreature);
-        
-        // Make sure we preserve the creature structure
-        return {
+        // CRITICAL FIX: Recalculate stats WITHOUT removing synergies
+        // Pass the current synergies to maintain them
+        const creatureWithRecalculatedStats = {
           ...updatedCreature,
+          battleStats: calculateDerivedStats(updatedCreature, state.activeSynergies)
+        };
+        
+        // Make sure we preserve the creature structure and health
+        return {
           ...creatureWithRecalculatedStats,
-          // Ensure critical properties are preserved
           id: updatedCreature.id,
           species_name: updatedCreature.species_name,
           currentHealth: creatureWithRecalculatedStats.currentHealth || updatedCreature.currentHealth,
-          activeEffects: updatedCreature.activeEffects
+          activeEffects: updatedCreature.activeEffects,
+          activeSynergies: state.activeSynergies // Preserve synergies
         };
       });
       
@@ -1104,7 +1150,6 @@ const battleReducer = (state, action) => {
             }
             
             // Handle other effects normally
-            // Check if effect should continue based on duration
             if (effect.duration !== undefined) {
               const newDuration = effect.duration - 1;
               
@@ -1152,19 +1197,21 @@ const battleReducer = (state, action) => {
           }
         }
         
-        // Recalculate stats with the updated active effects
-        // FIXED: recalculateDerivedStats returns a full creature object, not just stats
-        const creatureWithRecalculatedStats = recalculateDerivedStats(updatedCreature);
-        
-        // Make sure we preserve the creature structure
-        return {
+        // CRITICAL FIX: Recalculate stats WITHOUT removing synergies
+        // Pass the current synergies to maintain them
+        const creatureWithRecalculatedStats = {
           ...updatedCreature,
+          battleStats: calculateDerivedStats(updatedCreature, state.enemyActiveSynergies)
+        };
+        
+        // Make sure we preserve the creature structure and health
+        return {
           ...creatureWithRecalculatedStats,
-          // Ensure critical properties are preserved
           id: updatedCreature.id,
           species_name: updatedCreature.species_name,
           currentHealth: creatureWithRecalculatedStats.currentHealth || updatedCreature.currentHealth,
-          activeEffects: updatedCreature.activeEffects
+          activeEffects: updatedCreature.activeEffects,
+          activeSynergies: state.enemyActiveSynergies // Preserve synergies
         };
       });
       
@@ -1195,7 +1242,10 @@ const battleReducer = (state, action) => {
             turn: state.turn,
             message: `${state.activePlayer === 'player' ? 'Your' : 'Enemy'} turn ended. ${state.activePlayer === 'player' ? 'Enemy' : 'Your'} turn begins!`
           }
-        ]
+        ],
+        // PRESERVE synergies across turns
+        activeSynergies: state.activeSynergies,
+        enemyActiveSynergies: state.enemyActiveSynergies
       };
     }
     
