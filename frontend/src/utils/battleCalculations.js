@@ -1,6 +1,6 @@
-// src/utils/battleCalculations.js - FIXED WITH PROPER ENERGY COST SCALING AND WHOLE NUMBERS
+// src/utils/battleCalculations.js - FIXED SYNERGY APPLICATION AND HEALTH TRACKING
 // ENHANCED: Calculate derived stats with synergies, soft caps, and active effects
-export const calculateDerivedStats = (creature, activeSynergies = []) => {
+export const calculateDerivedStats = (creature, activeSynergies = [], skipSynergies = false) => {
   // Validate input
   if (!creature || !creature.stats) {
     // Return default stats if creature or stats are missing
@@ -27,11 +27,13 @@ export const calculateDerivedStats = (creature, activeSynergies = []) => {
   // Apply specialty stat bonuses
   const specialtyMultipliers = getSpecialtyMultipliers(creature);
   
-  // FIXED: Apply synergy bonuses
+  // FIXED: Only apply synergy bonuses if not skipping and if synergies are provided
   let synergyMultiplier = 1.0;
-  activeSynergies.forEach(synergy => {
-    synergyMultiplier += synergy.bonus || 0;
-  });
+  if (!skipSynergies && activeSynergies && activeSynergies.length > 0) {
+    activeSynergies.forEach(synergy => {
+      synergyMultiplier += synergy.bonus || 0;
+    });
+  }
   
   // Calculate raw stats before soft caps
   const rawPhysicalAttack = (
@@ -606,17 +608,23 @@ export const applySynergyModifiers = (creatures, synergies) => {
   if (!creatures || creatures.length === 0) return creatures;
   
   return creatures.map(creature => {
+    // FIXED: Preserve original maxHealth when synergies are applied
+    const originalMaxHealth = creature.battleStats?.maxHealth || creature.maxHealth || creature.health;
+    const healthPercentage = creature.currentHealth / originalMaxHealth;
+    
     // Recalculate stats with active synergies
     const modifiedStats = calculateDerivedStats(creature, synergies);
+    
+    // FIXED: Maintain health percentage after synergy application
+    const newMaxHealth = modifiedStats.maxHealth;
+    const newCurrentHealth = Math.round(healthPercentage * newMaxHealth);
     
     return {
       ...creature,
       battleStats: modifiedStats,
       activeSynergies: synergies,
-      // Preserve current health ratio
-      currentHealth: Math.round(
-        (creature.currentHealth / creature.battleStats.maxHealth) * modifiedStats.maxHealth
-      )
+      maxHealth: newMaxHealth,
+      currentHealth: newCurrentHealth
     };
   });
 };
