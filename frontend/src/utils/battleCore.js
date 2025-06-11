@@ -992,7 +992,7 @@ export const defendCreature = (creature, difficulty = 'medium') => {
     creatureClone.activeEffects = [];
   }
   
-  // Add defense effect with FIXED duration of 1 turn
+  // Add defense effect with FIXED duration of 1 turn (expires at end of next turn)
   creatureClone.activeEffects = [
     ...creatureClone.activeEffects,
     {
@@ -1000,7 +1000,7 @@ export const defendCreature = (creature, difficulty = 'medium') => {
       type: 'defense',
       name: 'Defensive Stance',
       icon: '🛡️',
-      duration: 2, // FIXED: Set to exactly 1 turn
+      duration: 1, // FIXED: Set to exactly 1 turn - will expire at the end of the opponent's turn
       effectType: 'Shield',
       statModifications: {
         physicalDefense: physicalDefenseBoost + Math.round(physicalDefenseBoost * rarityBonus),
@@ -1008,7 +1008,7 @@ export const defendCreature = (creature, difficulty = 'medium') => {
       },
       damageReduction: difficulty === 'hard' || difficulty === 'expert' ? 0.4 : 0.2,
       startTurn: creatureClone.currentTurn || 0,
-      persistThroughTurn: false // CHANGED: Don't persist beyond the turn
+      persistThroughTurn: false // Don't persist beyond the turn
     }
   ];
   
